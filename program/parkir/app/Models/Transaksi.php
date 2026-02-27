@@ -33,7 +33,7 @@ class Transaksi extends Model
         'waktu_masuk' => 'required|valid_date[Y-m-d H:i:s]',
         'waktu_keluar' => 'permit_empty|valid_date[Y-m-d H:i:s]',
         'id_tarif' => 'permit_empty|integer',
-        'durasi_jam' => 'permit_empty|numeric',
+        'durasi_jam' => 'permit_empty|integer',
         'biaya_total' => 'permit_empty|numeric',
         'status' => 'required|in_list[masuk,keluar,selesai]',
         'id_user' => 'required|integer',
@@ -56,7 +56,7 @@ class Transaksi extends Model
             'integer' => 'ID tarif harus angka'
         ],
         'durasi_jam' => [
-            'numeric' => 'Durasi harus angka'
+            'integer' => 'Durasi harus angka'
         ],
         'biaya_total' => [
             'numeric' => 'Biaya total harus angka'
@@ -83,13 +83,30 @@ class Transaksi extends Model
     protected $allowCallbacks = true;
     protected $beforeInsert   = [];
     protected $afterInsert    = [];
-    protected $beforeUpdate   = [];
+protected $beforeUpdate   = ['autoHitungBiaya'];
     protected $afterUpdate    = [];
     protected $beforeFind     = [];
     protected $afterFind      = [];
     protected $beforeDelete   = [];
     protected $afterDelete    = [];
-
+protected function autoHitungBiaya(array $data)
+{
+    if (isset($data['data']['durasi_jam'])) {
+        $durasi = (int) $data['data']['durasi_jam'];
+        
+        if ($durasi < 1) {
+            $durasi = 1;
+        }
+        
+        // Tarif per jam adalah 1000 (sesuai kesepakatan)
+        $tarif_per_jam = 1000;
+        
+        // Hitung biaya total
+      $data['data']['biaya_total'] = $this->hitungTarifParkir($durasi);
+    }
+    
+    return $data;
+}
     // Custom method untuk transaksi masuk
     public function transaksiMasuk($data)
     {
@@ -118,49 +135,67 @@ class Transaksi extends Model
         return $this->update($id_parkir, $data);
     }
 
-    // Custom method untuk update transaksi dengan perhitungan biaya
-    public function updateWithBiaya($id_parkir, $tarif_per_jam)
-    {
-        $transaksi = $this->find($id_parkir);
-        if (!$transaksi || !$transaksi['waktu_keluar']) {
-            return false;
-        }
+public function updateWithBiaya($id_parkir)
+{
+    $transaksi = $this->find($id_parkir);
+    if (!$transaksi || !$transaksi['waktu_keluar']) {
+        return false;
+    }
 
+    // Cek apakah durasi_jam sudah diisi manual (lebih dari 0)
+    if (isset($transaksi['durasi_jam']) && $transaksi['durasi_jam'] > 0) {
+        // Gunakan durasi yang sudah ada, tidak perlu hitung ulang
+        $durasi_jam = (int) $transaksi['durasi_jam'];
+        
+        // Hitung waktu_keluar otomatis berdasarkan durasi manual
+        $waktu_masuk = new \DateTime($transaksi['waktu_masuk']);
+        $waktu_keluar_baru = clone $waktu_masuk;
+        $waktu_keluar_baru->add(new \DateInterval('PT' . $durasi_jam . 'H'));
+        
+        // Update data dengan waktu_keluar yang dihitung otomatis
+        return $this->update($id_parkir, [
+            'durasi_jam' => $durasi_jam,
+            'waktu_keluar' => $waktu_keluar_baru->format('Y-m-d H:i:s'),
+            'status'     => 'selesai'
+        ]);
+    } else {
+        // Hitung durasi otomatis jika belum ada
         $waktu_masuk = new \DateTime($transaksi['waktu_masuk']);
         $waktu_keluar = new \DateTime($transaksi['waktu_keluar']);
-        $interval = $waktu_masuk->diff($waktu_keluar);
         
-        // Hitung durasi dalam jam (dengan pembulatan ke atas)
-        $durasi_jam = $interval->h + ($interval->i / 60);
-        $durasi_jam = ceil($durasi_jam * 100) / 100; // Pembulatan ke 2 desimal
+        // Hitung durasi dalam jam penuh (berdasarkan jam masuk)
+        $jam_masuk = (int)$waktu_masuk->format('H');
+        $menit_masuk = (int)$waktu_masuk->format('i');
+        $jam_keluar = (int)$waktu_keluar->format('H');
+        $menit_keluar = (int)$waktu_keluar->format('i');
         
-        // Hitung biaya total
-        $biaya_total = $durasi_jam * $tarif_per_jam;
+        // Hitung selisih jam
+        $selisih_jam = $jam_keluar - $jam_masuk;
+        
+        // Jika masih hari yang sama
+        if ($selisih_jam >= 0) {
+            // Jika menit keluar >= menit masuk, jam berikutnya sudah terlewati
+            if ($menit_keluar >= $menit_masuk) {
+                $durasi_jam = $selisih_jam + 1;
+            } else {
+                $durasi_jam = $selisih_jam;
+            }
+        } else {
+            // Beda hari (handle kasus besok)
+            $durasi_jam = 24 - $jam_masuk + $jam_keluar + 1;
+        }
+        
+        // Minimal 1 jam
+        if ($durasi_jam < 1) {
+            $durasi_jam = 1;
+        }
 
-        // Debug: Log perhitungan
-        log_message('debug', "UpdateWithBiaya - ID: $id_parkir, Tarif: $tarif_per_jam");
-        log_message('debug', "UpdateWithBiaya - Waktu Masuk: " . $transaksi['waktu_masuk']);
-        log_message('debug', "UpdateWithBiaya - Waktu Keluar: " . $transaksi['waktu_keluar']);
-        log_message('debug', "UpdateWithBiaya - Interval: " . $interval->format('%H:%I:%S'));
-        log_message('debug', "UpdateWithBiaya - Durasi Jam: $durasi_jam");
-        log_message('debug', "UpdateWithBiaya - Biaya Total: $biaya_total");
-
-        $data = [
+        return $this->update($id_parkir, [
             'durasi_jam' => $durasi_jam,
-            'biaya_total' => $biaya_total,
-            'status' => 'selesai'
-        ];
-
-        // Pertahankan id_tarif dan metode_pembayaran jika sudah ada
-        if (isset($transaksi['id_tarif'])) {
-            $data['id_tarif'] = $transaksi['id_tarif'];
-        }
-        if (isset($transaksi['metode_pembayaran'])) {
-            $data['metode_pembayaran'] = $transaksi['metode_pembayaran'];
-        }
-
-        return $this->update($id_parkir, $data);
+            'status'     => 'selesai'
+        ]);
     }
+}
 
     // Custom method untuk menghitung durasi dan biaya
     public function hitungBiaya($id_parkir, $tarif_per_jam)
@@ -174,12 +209,35 @@ class Transaksi extends Model
         $waktu_keluar = new \DateTime($transaksi['waktu_keluar']);
         $interval = $waktu_masuk->diff($waktu_keluar);
         
-        // Hitung durasi dalam jam (dengan pembulatan ke atas)
-        $durasi_jam = $interval->h + ($interval->i / 60);
-        $durasi_jam = ceil($durasi_jam * 100) / 100; // Pembulatan ke 2 desimal
+        // Hitung durasi dalam jam penuh (berdasarkan jam masuk)
+        $jam_masuk = (int)$waktu_masuk->format('H');
+        $menit_masuk = (int)$waktu_masuk->format('i');
+        $jam_keluar = (int)$waktu_keluar->format('H');
+        $menit_keluar = (int)$waktu_keluar->format('i');
         
-        // Hitung biaya total
-        $biaya_total = $durasi_jam * $tarif_per_jam;
+        // Hitung selisih jam
+        $selisih_jam = $jam_keluar - $jam_masuk;
+        
+        // Jika masih hari yang sama
+        if ($selisih_jam >= 0) {
+            // Jika menit keluar >= menit masuk, jam berikutnya sudah terlewati
+            if ($menit_keluar >= $menit_masuk) {
+                $durasi_jam = $selisih_jam + 1;
+            } else {
+                $durasi_jam = $selisih_jam;
+            }
+        } else {
+            // Beda hari (handle kasus besok)
+            $durasi_jam = 24 - $jam_masuk + $jam_keluar + 1;
+        }
+        
+        // Minimal 1 jam
+        if ($durasi_jam < 1) {
+            $durasi_jam = 1;
+        }
+        
+        // Hitung biaya total (1000 per jam)
+      $biaya_total = $this->hitungTarifParkir($durasi_jam);
 
         $data = [
             'durasi_jam' => $durasi_jam,
@@ -275,5 +333,39 @@ class Transaksi extends Model
         $this->groupBy('DATE(waktu_masuk)');
         
         return $this->findAll();
+    }
+private function hitungTarifParkir($jam)
+{
+    if ($jam <= 2) {
+        return 2000;
+    }
+
+    return 2000 + (($jam - 2) * 1000);
+}
+    // Custom method untuk rehit biaya berdasarkan durasi_jam yang sudah ada
+    public function rehitBiayaFromDurasi($id_parkir)
+    {
+        $transaksi = $this->find($id_parkir);
+        if (!$transaksi) {
+            return false;
+        }
+
+        // Gunakan durasi_jam yang sudah ada di database
+        $durasi_jam = $transaksi['durasi_jam'] ?? 1;
+        
+        // Hitung biaya total (1000 per jam)
+  $biaya_total = $this->hitungTarifParkir($durasi_jam);
+
+        // Debug: Log perhitungan
+        log_message('debug', "RehitBiayaFromDurasi - ID: $id_parkir");
+        log_message('debug', "RehitBiayaFromDurasi - Durasi Jam dari DB: $durasi_jam");
+        log_message('debug', "RehitBiayaFromDurasi - Biaya Total: $biaya_total");
+
+        $data = [
+            'biaya_total' => $biaya_total,
+            'status' => 'selesai'
+        ];
+
+        return $this->update($id_parkir, $data);
     }
 }

@@ -166,5 +166,25 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
+<script>
+function updateRealtime(id){
+    fetch('/transaksi/realtime/' + id)
+    .then(res=>res.json())
+    .then(data=>{
+        const durasi = document.getElementById("durasi_"+id);
+        const biaya = document.getElementById("biaya_"+id);
 
+        if(durasi) durasi.innerText = data.durasi + " jam";
+        if(biaya) biaya.innerText = "Rp " + data.biaya;
+    });
+}
+
+function refreshAll(){
+<?php foreach ($transaksi_aktif as $t): ?>
+    updateRealtime(<?= $t['id_parkir'] ?>);
+<?php endforeach; ?>
+}
+
+setInterval(refreshAll,1000);
+</script>
 <?= $this->endSection() ?>

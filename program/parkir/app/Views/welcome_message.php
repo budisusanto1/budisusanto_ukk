@@ -155,7 +155,13 @@
 <div class="welcome-container">
     <div class="welcome-card">
         <div class="logo-container">
-            <img src="<?= base_url('logo-bcs.png') ?>" alt="Logo BCS Mall" class="logo-bcs">
+            <?php if (file_exists(ROOTPATH . 'public/logo-bcs.png')): ?>
+                <img src="<?= base_url('logo-bcs.png') ?>" alt="Logo BCS Mall" class="logo-bcs">
+            <?php else: ?>
+                <div class="logo-bcs d-flex align-items-center justify-content-center">
+                    <i class="fas fa-parking fa-3x text-white"></i>
+                </div>
+            <?php endif; ?>
         </div>
 
         <?php if (session()->get('isLoggedIn')): ?>

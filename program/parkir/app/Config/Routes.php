@@ -14,7 +14,7 @@ $routes->get('/auth/login', 'Auth::login');
 $routes->post('/auth/login', 'Auth::login');
 $routes->get('/auth/logout', 'Auth::logout');
 $routes->get('/auth', 'Auth::index');
-
+$routes->get('transaksi/realtime/(:num)', 'TransaksiController::realtime/$1');
 // Dashboard Route
 $routes->get('/dashboard', 'Dashboard::index');
 
@@ -34,7 +34,6 @@ $routes->get('/transaksi/struk/(:num)', 'TestRekapController::cetakStruk/$1'); /
 
 // Laporan Routes (Owner, Admin & Superadmin)
 $routes->get('/laporan/pendapatan', 'LaporanController::pendapatan');
-$routes->get('/laporan/exportExcel', 'LaporanController::exportExcel');
 $routes->get('/laporan/statistik', 'LaporanController::statistik');
 
 // User Routes (Admin & Superadmin only)

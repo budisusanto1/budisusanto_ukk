@@ -107,8 +107,14 @@
     <div class="login-card">
         <div class="login-header">
              <div class="logo-container">
+            <?php if (file_exists(ROOTPATH . 'public/logo-bcs.png')): ?>
                 <img src="<?= base_url('logo-bcs.png') ?>" alt="Logo BCS Mall" class="logo-bcs">
-            </div>
+            <?php else: ?>
+                <div class="logo-bcs d-flex align-items-center justify-content-center">
+                    <i class="fas fa-parking fa-3x text-white"></i>
+                </div>
+            <?php endif; ?>
+        </div>
             <h3>Login</h3>
             <p>Sistem Manajemen Parkir bcs </p>
         </div>

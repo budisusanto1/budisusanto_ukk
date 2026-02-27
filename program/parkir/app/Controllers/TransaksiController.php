@@ -213,18 +213,8 @@ class TransaksiController extends BaseController
         // Update metode pembayaran
         $this->transaksiModel->update($id, ['metode_pembayaran' => $metode_pembayaran]);
         
-        // Gunakan tarif yang sudah ditemukan
-        $tarif_per_jam = $transaksiDetail['tarif_per_jam'] ?? null;
-        
-        if ($tarif_per_jam) {
-            // Hitung biaya menggunakan method baru
-            $this->transaksiModel->updateWithBiaya($id, $tarif_per_jam);
-        } else {
-            log_message('error', 'Tarif per jam not found. Using default tarif.');
-            // Set default tarif jika tidak ditemukan
-            $defaultTarif = 5000; // Rp 5.000 per jam
-            $this->transaksiModel->updateWithBiaya($id, $defaultTarif);
-        }
+        // Gunakan tarif tetap 1000 per jam
+        $this->transaksiModel->updateWithBiaya($id, 1000);
 
         // Ambil data transaksi yang sudah diperbarui (setelah perhitungan biaya)
         $transaksiFinal = $this->transaksiModel->getTransaksiWithRelations($id);
@@ -240,7 +230,33 @@ class TransaksiController extends BaseController
 
         return redirect()->to('/transaksi/keluar')->with('success', 'Transaksi keluar berhasil diproses');
     }
+public function realtime($id)
+{
+    $transaksi = $this->transaksiModel->find($id);
+    if (!$transaksi) return $this->response->setJSON(['error' => 'not found']);
 
+    $masuk = new \DateTime($transaksi['waktu_masuk']);
+    $now = new \DateTime();
+
+    $diff = $masuk->diff($now);
+
+    $jam = ($diff->days * 24) + $diff->h;
+    if ($diff->i > 0 || $diff->s > 0) $jam++;
+
+    if ($jam < 1) $jam = 1;
+
+    // tarif aturan kamu
+    if ($jam <= 2)
+        $biaya = 2000;
+    else
+        $biaya = 2000 + (($jam - 2) * 1000);
+
+    return $this->response->setJSON([
+        'durasi' => $jam,
+        'biaya' => $biaya,
+        'sekarang' => date('H:i:s')
+    ]);
+}
     public function cetakStruk($id)
     {
         $check = $this->checkRole();
@@ -291,5 +307,30 @@ class TransaksiController extends BaseController
         ];
 
         return view('transaksi/struk_list', $data);
+    }
+
+    // Method untuk rehit biaya berdasarkan durasi_jam yang ada di database
+    public function rehitBiaya($id)
+    {
+        $check = $this->checkRole();
+        if ($check) return $check;
+
+        $transaksi = $this->transaksiModel->find($id);
+        if (!$transaksi) {
+            return redirect()->to('/transaksi/keluar')->with('error', 'Transaksi tidak ditemukan');
+        }
+
+        // Rehit biaya berdasarkan durasi_jam yang ada di database
+        if ($this->transaksiModel->rehitBiayaFromDurasi($id)) {
+            // Log aktivitas
+            $this->logModel->logActivity(
+                session()->get('id_user'),
+                'Rehit biaya transaksi ID: ' . $id . ' (durasi: ' . $transaksi['durasi_jam'] . ' jam)'
+            );
+
+            return redirect()->to('/transaksi/keluar')->with('success', 'Biaya berhasil dihitung ulang');
+        } else {
+            return redirect()->to('/transaksi/keluar')->with('error', 'Gagal menghitung ulang biaya');
+        }
     }
 }
